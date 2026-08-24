@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from non_linear_function import Net
+from DiscreteOneHotWrapper import DiscreteOneHotWrapper
 from torch.utils.tensorboard.writer import SummaryWriter
 import typing as tt
 from dataclasses import dataclass
@@ -101,8 +102,9 @@ def elite_episodes(batch: tt.List[Episode], percentile: float):
 if __name__ == "__main__":
 
     # creating the environment (one can also add render_mode = "human" argument to see the model learn)
-    env = gym.make("CartPole-v1", render_mode="rgb_array")
-    env = gym.wrappers.RecordVideo(env, video_folder="video")
+    env = DiscreteOneHotWrapper(gym.make("FrozenLake-v1", is_slippery = False))
+
+    # env = gym.wrappers.RecordVideo(env, video_folder="video")
     # shape of the current observation space
     obs_size = env.observation_space.shape[0]
     # number of actions
@@ -115,7 +117,7 @@ if __name__ == "__main__":
     # the optimizer
     optimizer = optim.Adam(params=net.parameters(), lr = 0.01)
     # The summary writer for Tensorboard
-    writer = SummaryWriter(comment = "cartpole")
+    writer = SummaryWriter(comment = "frozenlake-naive")
 
 
     # The actual training loop

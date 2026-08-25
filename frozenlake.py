@@ -12,8 +12,10 @@ from dataclasses import dataclass
 
 # declaring and assigning some constants for our neural network
 HIDDEN_SIZE = 128
-BATCH_SIZE = 16
-PERCENTILE = 70
+BATCH_SIZE = 100
+PERCENTILE = 30
+# wqe will also need gamma later to get the discounted reward
+GAMMA = 0.9
 
 
 # dataclass representing one single step in a episode
@@ -79,25 +81,23 @@ def create_batches(env: gym.Env, net: Net, batch_size: int):
 
 def elite_episodes(batch: tt.List[Episode], percentile: float):
     # getting the rewards from each episode 
-    rewards = list(map(lambda s: s.reward, batch))
+    rewards_discounted = list(map(lambda s: s.reward * (GAMMA ** (len(s.steps))), batch))
     # getting the reward bound using np.percentile()
-    reward_bound = float(np.percentile(rewards, percentile))
-    # we also want the reward mean so that we can use it for monitoring
-    reward_mean = np.mean(rewards)
+    reward_bound = float(np.percentile(rewards_discounted, percentile))
     elite_obs: tt.List[np.ndarray] = []
     elite_actions: tt.List[int] = []
-    for episode in batch:
+    elite_batches: tt.List[Episode] = []
+    for episode, discounted_reward in zip(batch, rewards_discounted):
         # filtering the episodes, which have total reward greater than the reward bound
-        # print("Rewards:", rewards)
-        # print("Reward bound:", reward_bound)
-        if episode.reward >= reward_bound:
+        if discounted_reward > reward_bound:
+            elite_batches.append(episode)
             elite_obs.extend(map(lambda e: e.observation, episode.steps))
             elite_actions.extend(map(lambda e: e.action, episode.steps))
     # print("Number of elite observations:", len(elite_obs))
     # print("Number of elite actions:", len(elite_actions))
     obs_tensor = torch.FloatTensor(elite_obs)
     act_tensor = torch.LongTensor(elite_actions)
-    return obs_tensor, act_tensor, reward_bound, reward_mean
+    return elite_batches, obs_tensor, act_tensor, reward_bound
 
 if __name__ == "__main__":
 
@@ -115,14 +115,21 @@ if __name__ == "__main__":
     # The objective function
     objective = nn.CrossEntropyLoss()
     # the optimizer
-    optimizer = optim.Adam(params=net.parameters(), lr = 0.01)
+    optimizer = optim.Adam(params=net.parameters(), lr = 0.001)
     # The summary writer for Tensorboard
-    writer = SummaryWriter(comment = "frozenlake-naive")
+    writer = SummaryWriter(comment = "frozenlake")
 
 
+    elite_batches = []
     # The actual training loop
     for num, batch in enumerate(create_batches(env, net, BATCH_SIZE)):
-        obs_t, acts_t, reward_bound, reward_mean = elite_episodes(batch, PERCENTILE)
+        elite_batches, obs_t, acts_t, reward_bound = elite_episodes(elite_batches + batch, PERCENTILE)
+        # we also want the reward mean so that we can use it for monitoring
+        reward_mean = float(np.mean(list(map(lambda s: s.reward, batch))))
+        if not elite_batches: 
+            continue
+
+        elite_batches = elite_batches[-500:]
         # We zero the gradients of our neural network
         optimizer.zero_grad()
         # passing the observation to our network
@@ -139,7 +146,7 @@ if __name__ == "__main__":
         writer.add_scalar("reward_bound", reward_bound, num)
         writer.add_scalar("reward mean", reward_mean, num)
         # condition showing that the environment has been solved
-        if reward_mean > 475:
+        if reward_mean > 0.8:
             print("solved!")
             break
     writer.close()
